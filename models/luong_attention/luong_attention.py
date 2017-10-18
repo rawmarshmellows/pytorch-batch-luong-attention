@@ -64,36 +64,21 @@ class Attn(nn.Module):
         hidden : 1, batch_size, hidden_size
         encoder_outputs : max input length, batch_size, hidden_size
         """
-        max_len = encoder_outputs.size(0)
-        this_batch_size = encoder_outputs.size(1)
+        # max_len = encoder_outputs.size(0)
+        # this_batch_size = encoder_outputs.size(1)
 
-        attn_energies = Variable(torch.zeros(this_batch_size, max_len))
-
-        if self.use_cuda:
-            attn_energies = attn_energies.cuda()
-
-        for b in range(this_batch_size):
-            for i in range(max_len):
-                attn_energies[b, i] = self.score(hidden[:, b, :], encoder_outputs[i, b].unsqueeze(0))
+        attn_energies = torch.bmm(self.attn(hidden).transpose(1, 0), encoder_outputs.permute(1, 2, 0))
 
         # Batch size, 1, max input length
-        return F.softmax(attn_energies.unsqueeze(1))
+        return F.softmax(attn_energies)
 
     def score(self, hidden, encoder_output):
 
-        if self.method == 'dot':
-            energy = hidden.dot(encoder_output)
-            return energy
-
-        elif self.method == 'general':
+        if self.method == 'general':
             energy = self.attn(encoder_output).view(-1)
             energy = hidden.view(-1).dot(energy)
             return energy
 
-        elif self.method == 'concat':
-            energy = self.attn(torch.cat((hidden, encoder_output), 1))
-            energy = self.v.dot(energy)
-            return energy
 
 
 class LuongAttnDecoderRNN(nn.Module):
@@ -137,9 +122,9 @@ class LuongAttnDecoderRNN(nn.Module):
         # (batch size, hidden_size)
         embedded = self.embedding(input_seq)
 
-        # (1, batch size, hidden_size) add another dimension so that it works with
+        # (1, batch size, input_size) add another dimension so that it works with
         # the GRU
-        embedded = embedded.view(1, batch_size, self.hidden_size)  # S=1 x B x N
+        embedded = embedded.view(1, batch_size, self.input_size)  # S=1 x B x N
 
         logging.debug(f"embedded:\n{embedded}")
         # Get current hidden state from input word and last hidden state

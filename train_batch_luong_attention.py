@@ -8,6 +8,7 @@ import torch.backends.cudnn as cudnn
 from torch import optim
 from torch.autograd import Variable
 from tqdm import tqdm
+import torch.nn.functional as F
 
 from models.luong_attention_batch import luong_attention_batch
 from utils.batches import batches, data_from_batch
@@ -23,7 +24,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--train_dir", required=True)
     parser.add_argument("--batch_size", type=int, default=512)
-    parser.add_argument("--learning_rate", default=0.0005)
+    parser.add_argument("--learning_rate", default=0.0001)
     parser.add_argument("--input_size", default=128, type=int)
     parser.add_argument("--hidden_size", default=128, type=int)
     parser.add_argument("--eval_every", default=1000, type=int)
@@ -79,7 +80,7 @@ def main():
         decoder = decoder.cuda()
 
     encoder_optimizer = optim.Adam(encoder.parameters(), lr=args.learning_rate)
-    decoder_optimizer = optim.Adam(decoder.parameters(), lr=args.learning_rate)
+    decoder_optimizer = optim.Adam(decoder.parameters(), lr=args.learning_rate * args.decoder_learning_ratio)
 
     logging.info("Starting training")
     run_train(args.n_epochs,
@@ -167,6 +168,7 @@ def run_train(n_epochs,
                                             target_lengths,
                                             use_cuda=use_cuda)
             else:
+                # TODO: how do I do not do teacher forcing?
                 all_decoder_outputs = []
                 max_target_length = max(source_lengths)
                 for t in tqdm(range(max_target_length)):

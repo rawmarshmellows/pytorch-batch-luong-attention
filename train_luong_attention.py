@@ -23,18 +23,18 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--train_dir", required=True)
     parser.add_argument("--batch_size", type=int, default=512)
-    parser.add_argument("--learning_rate", default=0.001)
+    parser.add_argument("--learning_rate", default=0.0001)
     parser.add_argument("--input_size", default=128, type=int)
     parser.add_argument("--hidden_size", default=128, type=int)
     parser.add_argument("--eval_every", default=50, type=int)
     parser.add_argument("--eval_batch_size", default=10, type=int)
     parser.add_argument("--n_layers", default=2, type=int)
-    parser.add_argument("--n_epochs", default=5, type=int)
+    parser.add_argument("--n_epochs", default=10, type=int)
     parser.add_argument("--dropout", default=0.1)
     parser.add_argument("--score_function", default="general")
-    parser.add_argument("--teacher_forcing_ratio", default=0.5)
+    parser.add_argument("--teacher_forcing_ratio", default=1)
     parser.add_argument("--decoder_learning_ratio", default=5.)
-    parser.add_argument("--clip_norm", default=50.0)
+    parser.add_argument("--clip_norm", default=5.0)
     parser.add_argument("--log_level", default="INFO")
     parser.add_argument("--debug_restrict_data", type=int)
     parser.add_argument("--different_vocab", action="store_true")
@@ -57,7 +57,7 @@ def main():
     encoder_embedding_map, \
     decoder_embedding_map, \
     encoder_embedding_matrix, \
-    decoder_embedding_matrix = create_embedding_maps(train, val, args.hidden_size, args.different_vocab)
+    decoder_embedding_matrix = create_embedding_maps(train, val, args.input_size, args.different_vocab)
 
     encoder = luong_attention.EncoderRNN(args.hidden_size,
                                          args.input_size,
@@ -81,7 +81,7 @@ def main():
         decoder = decoder.cuda()
 
     encoder_optimizer = optim.Adam(encoder.parameters(), lr=args.learning_rate)
-    decoder_optimizer = optim.Adam(decoder.parameters(), lr=args.learning_rate)
+    decoder_optimizer = optim.Adam(decoder.parameters(), lr=args.learning_rate * args.decoder_learning_ratio)
 
     logging.info("Starting training")
 
@@ -135,20 +135,20 @@ def run_train(n_epochs,
 
             # encoder_outputs: max input length, batch size, hidden size
             # encoder_hidden: num_layers, batch size, hidden size
-            logging.info("Encoding")
+            logging.debug("Encoding")
             tic = time.time()
             encoder_outputs, encoder_hidden = encoder(source_var,
                                                       encoder.init_hidden(current_batch_size),
                                                       source_lengths)
             toc = time.time()
-            logging.info(f"Seconds take to encode: {round(toc-tic,2)}")
+            logging.debug(f"Seconds take to encode: {round(toc-tic,2)}")
             decoder_input = Variable(torch.LongTensor([Tokens.SOS_token] * current_batch_size))
             decoder_hidden = encoder_hidden
             if use_cuda:
                 decoder_input = decoder_input.cuda()
                 decoder_hidden = decoder_hidden.cuda()
 
-            logging.info("Decoding")
+            logging.debug("Decoding")
             tic = time.time()
 
             max_target_length = max(target_lengths)
@@ -160,16 +160,17 @@ def run_train(n_epochs,
             use_teacher_forcing = True if random.random() < teacher_forcing_ratio else False
 
             if use_teacher_forcing:
-                logging.info("Using teacher forcing")
-                for t in tqdm(range(max_target_length)):
+                logging.debug("Using teacher forcing")
+                for t in range(max_target_length):
                     decoder_output, decoder_hidden, _ = decoder(decoder_input,
                                                                 decoder_hidden,
                                                                 encoder_outputs)
                     all_decoder_outputs[t] = decoder_output
                     decoder_input = target_var[t]
             else:
-                logging.info("Not using teacher forcing")
-                for t in tqdm(range(max_target_length)):
+                ## TODO: how do I do non-teacher forcing for batch inputs?
+                logging.debug("Not using teacher forcing")
+                for t in range(max_target_length):
                     decoder_output, decoder_hidden, _ = decoder(decoder_input,
                                                                 decoder_hidden,
                                                                 encoder_outputs)
@@ -182,20 +183,20 @@ def run_train(n_epochs,
                                         target_var.transpose(0, 1).contiguous(),
                                         target_lengths,
                                         use_cuda=use_cuda)
-            logging.info(f"Time taken for 1 decode step: {round(toc-tic, 2)}")
-            logging.info("Backpropagating")
+            logging.debug(f"Time taken for 1 decode step: {round(toc-tic, 2)}")
+            logging.debug("Backpropagating")
 
             tic = time.time()
             loss.backward()
             toc = time.time()
-            logging.info(f"Seconds taken for backpropagation: {round(toc-tic, 2)}")
+            logging.debug(f"Seconds taken for backpropagation: {round(toc-tic, 2)}")
 
             # Clip gradients
-            logging.info("Clipping Gradients")
+            logging.debug("Clipping Gradients")
             _ = torch.nn.utils.clip_grad_norm(encoder.parameters(), clip_norm)
             _ = torch.nn.utils.clip_grad_norm(decoder.parameters(), clip_norm)
 
-            logging.info("Updating Weights")
+            logging.debug("Updating Weights")
             encoder_optimizer.step()
             decoder_optimizer.step()
 
@@ -206,6 +207,14 @@ def run_train(n_epochs,
                          decoder,
                          val,
                          eval_batch_size,
+                         use_cuda=use_cuda)
+
+                run_eval(encoder_embedding_map,
+                         decoder_embedding_map,
+                         encoder,
+                         decoder,
+                         train,
+                         batch_size,
                          use_cuda=use_cuda)
 
             logging.info(f"LOSS: {loss.data[0]}")
