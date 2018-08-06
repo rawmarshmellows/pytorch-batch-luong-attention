@@ -2,6 +2,7 @@ import argparse
 import logging
 import random
 import time
+import importlib
 
 import torch
 import torch.backends.cudnn as cudnn
@@ -12,7 +13,6 @@ from tqdm import tqdm
 from models.luong_attention import luong_attention
 from utils.batches import batches, data_from_batch
 from utils.embeddings import create_embedding_maps
-from utils.load_and_preprocessing.translation import load_train_and_val
 from utils.masked_cross_entropy import masked_cross_entropy
 from utils.tokens import Tokens
 
@@ -37,6 +37,7 @@ def parse_args():
     parser.add_argument("--clip_norm", default=5.0)
     parser.add_argument("--log_level", default="INFO")
     parser.add_argument("--debug_restrict_data", type=int)
+    parser.add_argument("--dataset_module", required=True)
     parser.add_argument("--different_vocab", action="store_true")
     parser.add_argument("--rnn_cell", default="GRU")
     parser.add_argument("--use_cuda", action="store_true")
@@ -47,11 +48,15 @@ def parse_args():
     logging.basicConfig(level=log_level)
     return args
 
+def load_data(dataset_module, train_dir, debug_restrict_data):
+    dataset_module_path = f"utils.load_and_preprocessing.{dataset_module}"
+    dataset_module = importlib.import_module(dataset_module_path)
+    train, val = dataset_module.load_data(train_dir, debug_restrict_data)
+    return train, val
 
 def main():
     args = parse_args()
-
-    train, val = load_train_and_val(args.train_dir, args.debug_restrict_data)
+    train, val = load_data(args.dataset_module, args.train_dir, args.debug_restrict_data)
 
     logging.info("Creating embedding maps")
     encoder_embedding_map, \
@@ -126,6 +131,8 @@ def run_train(n_epochs,
                                                decoder_embedding_map,
                                                use_cuda=use_cuda,
                                                batch_size=batch_size))):
+            encoder.train()
+            decoder.train()
             encoder_optimizer.zero_grad()
             decoder_optimizer.zero_grad()
 
@@ -236,8 +243,8 @@ def run_eval(encoder_embedding_map,
                  use_cuda=use_cuda))
 
     # Disable to avoid dropout
-    encoder.train(False)
-    decoder.train(False)
+    encoder.eval()
+    decoder.eval()
 
     source_var, source_lengths, target_var, target_lengths = data_from_batch(batch)
 

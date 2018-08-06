@@ -14,7 +14,7 @@ eng_prefixes = (
 )
 
 
-def load_train_and_val(train_dir, debug_restrict_data, max_length=10, reverse=True):
+def load_data(train_dir, debug_restrict_data, max_length=10, reverse=True):
     train = load_and_preprocess_file(pjoin(train_dir, "train.csv"), debug_restrict_data, max_length, reverse)
     val = load_and_preprocess_file(pjoin(train_dir, "val.csv"), debug_restrict_data, max_length, reverse)
     return train, val
